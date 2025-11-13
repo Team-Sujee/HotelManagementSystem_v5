@@ -243,6 +243,53 @@ export interface Season {
   status: SeasonStatus
   createdAt: string
   updatedAt: string
+  // Additional room/meal type specific adjustments
+  roomTypeAdjustments?: Record<string, number> // roomType -> adjustment percentage
+  mealPlanAdjustments?: Record<string, number> // mealPlanCode -> adjustment percentage
+  stayTypeAdjustments?: Record<string, number> // stayType (roomType-mealPlan) -> adjustment percentage
+}
+
+// Channel Hierarchy Types
+export type MainChannelType = 'OTA' | 'Website' | 'Travel Agent' | 'Direct'
+export type SubChannelType = string // e.g., 'Booking.com', 'Expedia', 'Agoda'
+
+export interface MainChannel {
+  id: string
+  name: MainChannelType
+  adjustmentPercentage: number // Base adjustment for main channel
+  status: 'Active' | 'Inactive'
+  createdAt: string
+  updatedAt: string
+  createdBy: string
+  updatedBy?: string
+}
+
+export interface SubChannel {
+  id: string
+  name: string // e.g., 'Booking.com', 'Expedia'
+  mainChannelId: string
+  additionalAdjustmentPercentage: number // Additional adjustment on top of main channel
+  commissionType?: 'Fixed' | 'Percentage'
+  commissionValue?: number
+  status: 'Active' | 'Inactive'
+  createdAt: string
+  updatedAt: string
+  createdBy: string
+  updatedBy?: string
+}
+
+// Pricing Audit Log
+export interface PricingAuditLog {
+  id: string
+  action: 'Create' | 'Update' | 'Delete' | 'BulkUpdate'
+  entityType: 'Channel' | 'Season' | 'Rate' | 'BulkUpdate'
+  entityId: string
+  entityName: string
+  changes: Record<string, { old: any; new: any }>
+  userId: string
+  userName: string
+  timestamp: string
+  notes?: string
 }
 
 // Channel Management Types
@@ -516,12 +563,22 @@ export interface Amenity {
   active: boolean
 }
 
+export interface StandardRoomType {
+  id: string
+  name: string // unique, e.g., "Single Room"
+  description: string // e.g., "Contains one single bed; meant for one person."
+  defaultCapacity: number // positive integer, e.g., 1
+  createdAt: string
+  updatedAt: string
+}
+
 export interface RoomTypeConfig {
   id: string
   name: string
   description: string
+  standardRoomTypeId?: string // reference to StandardRoomType
   basePrice: number
-  allowedCapacity: number
+  allowedCapacity: number // auto-filled from StandardRoomType if selected
   includedAmenities: string[] // amenity ids or names
   images?: string[]
   createdAt: string

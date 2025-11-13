@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { Room, RoomStatus, StayType, Amenity, AmenityCategory, RoomTypeConfig, RoomViewType, MealPlanCode } from '../types'
+import { Room, RoomStatus, StayType, Amenity, AmenityCategory, RoomTypeConfig, RoomViewType, MealPlanCode, StandardRoomType } from '../types'
 import RoomCard from '../components/organisms/RoomCard'
 import Button from '../components/atoms/Button'
 import Input from '../components/atoms/Input'
@@ -14,6 +14,7 @@ import Pagination from '../components/molecules/Pagination'
 import { useAuthStore } from '../store/authStore'
 import { MOCK_ROOM_VIEW_TYPES } from '../constants'
 import { useMealPlansStore } from '../store/mealPlansStore'
+import { useStandardRoomTypesStore } from '../store/standardRoomTypesStore'
 
 const RoomsPage: React.FC = () => {
   const { list, create, update, remove, setStatus } = useRoomsStore()
@@ -30,7 +31,9 @@ const RoomsPage: React.FC = () => {
   const [sortBy, setSortBy] = useState<'price' | 'type' | 'status' | 'area' | 'viewType' | 'mealPlan'>('type')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const [activeTab, setActiveTab] = useState<'overview' | 'calendar'>('overview')
-  const [activeSection, setActiveSection] = useState<'rooms' | 'roomTypes' | 'stayTypes' | 'amenities' | 'areas' | 'viewTypes'>('rooms')
+  const [activeSection, setActiveSection] = useState<'rooms' | 'standardRoomTypes' | 'roomTypes' | 'stayTypes' | 'amenities' | 'areas' | 'viewTypes'>('rooms')
+  const [calendarView, setCalendarView] = useState<'week' | 'month' | 'year'>('week')
+  const standardRoomTypesStore = useStandardRoomTypesStore()
   const [isCreateEditOpen, setIsCreateEditOpen] = useState(false)
   const [minPrice, setMinPrice] = useState<number | ''>('')
   const [maxPrice, setMaxPrice] = useState<number | ''>('')
@@ -80,7 +83,10 @@ const RoomsPage: React.FC = () => {
   ])
   const [isMdModalOpen, setIsMdModalOpen] = useState(false)
   const [mdMode, setMdMode] = useState<'create' | 'edit'>('create')
-  const [mdEntity, setMdEntity] = useState<'roomType' | 'amenity' | 'area' | 'stayType' | 'viewType'>('roomType')
+  const [mdEntity, setMdEntity] = useState<'standardRoomType' | 'roomType' | 'amenity' | 'area' | 'stayType' | 'viewType'>('roomType')
+  const [standardRoomTypeSearch, setStandardRoomTypeSearch] = useState('')
+  const [standardRoomTypeSortBy, setStandardRoomTypeSortBy] = useState<'name' | 'defaultCapacity'>('name')
+  const [standardRoomTypeSortDir, setStandardRoomTypeSortDir] = useState<'asc' | 'desc'>('asc')
   const [mdEditId, setMdEditId] = useState<string | null>(null)
   const [mdForm, setMdForm] = useState<any>({})
 
@@ -131,7 +137,8 @@ const RoomsPage: React.FC = () => {
     setMdMode('create')
     setMdEntity(entity)
     setMdEditId(null)
-    if (entity === 'roomType') setMdForm({ name: '', description: '', basePrice: 0, allowedCapacity: 1 })
+    if (entity === 'standardRoomType') setMdForm({ name: '', description: '', defaultCapacity: 1 })
+    if (entity === 'roomType') setMdForm({ name: '', description: '', standardRoomTypeId: '', basePrice: 0, allowedCapacity: 1 })
     if (entity === 'amenity') setMdForm({ name: '', category: AmenityCategory.Essential, active: true })
     if (entity === 'area') setMdForm({ name: '' })
     if (entity === 'stayType') setMdForm({ name: '', description: '', pricingRule: '' })
@@ -142,9 +149,13 @@ const RoomsPage: React.FC = () => {
     setMdMode('edit')
     setMdEntity(entity)
     setMdEditId(id)
+    if (entity === 'standardRoomType') {
+      const srt = standardRoomTypesStore.getById(id)
+      if (srt) setMdForm({ name: srt.name, description: srt.description, defaultCapacity: srt.defaultCapacity })
+    }
     if (entity === 'roomType') {
       const rt = roomTypes.find(r => r.id === id)
-      if (rt) setMdForm({ name: rt.name, description: rt.description, basePrice: rt.basePrice, allowedCapacity: rt.allowedCapacity })
+      if (rt) setMdForm({ name: rt.name, description: rt.description, standardRoomTypeId: rt.standardRoomTypeId || '', basePrice: rt.basePrice, allowedCapacity: rt.allowedCapacity })
     }
     if (entity === 'amenity') {
       const am = amenities.find(a => a.id === id)
@@ -174,28 +185,79 @@ const RoomsPage: React.FC = () => {
     setIsMdModalOpen(true)
   }
   const submitMdForm = () => {
+    if (mdEntity === 'standardRoomType') {
+      try {
+        if (mdMode === 'create') {
+          standardRoomTypesStore.create({
+            name: mdForm.name.trim(),
+            description: mdForm.description.trim(),
+            defaultCapacity: Number(mdForm.defaultCapacity) || 1,
+          })
+        } else if (mdEditId) {
+          standardRoomTypesStore.update(mdEditId, {
+            name: mdForm.name.trim(),
+            description: mdForm.description.trim(),
+            defaultCapacity: Number(mdForm.defaultCapacity) || 1,
+          })
+        }
+        setIsMdModalOpen(false)
+      } catch (error: any) {
+        alert(error.message || 'Error saving Standard Room Type')
+      }
+      return
+    }
     if (mdEntity === 'roomType') {
+      // Get capacity from Standard Room Type if selected
+      let capacity = Number(mdForm.allowedCapacity) || 1
+      if (mdForm.standardRoomTypeId) {
+        const srt = standardRoomTypesStore.getById(mdForm.standardRoomTypeId)
+        if (srt) {
+          capacity = srt.defaultCapacity
+        }
+      }
+      
       if (mdMode === 'create') {
         const newRt: RoomTypeConfig = {
           id: `RT-${roomTypes.length + 1}`,
           name: mdForm.name,
           description: mdForm.description,
+          standardRoomTypeId: mdForm.standardRoomTypeId || undefined,
           basePrice: Number(mdForm.basePrice) || 0,
-          allowedCapacity: Number(mdForm.allowedCapacity) || 1,
+          allowedCapacity: capacity,
           includedAmenities: [],
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         }
         setRoomTypes([...roomTypes, newRt])
       } else if (mdEditId) {
+        // Update capacity if standard room type changed
+        let updatedCapacity = capacity
+        const existing = roomTypes.find(rt => rt.id === mdEditId)
+        if (mdForm.standardRoomTypeId && mdForm.standardRoomTypeId !== existing?.standardRoomTypeId) {
+          const srt = standardRoomTypesStore.getById(mdForm.standardRoomTypeId)
+          if (srt) {
+            updatedCapacity = srt.defaultCapacity
+          }
+        } else if (!mdForm.standardRoomTypeId) {
+          updatedCapacity = Number(mdForm.allowedCapacity) || existing?.allowedCapacity || 1
+        }
+        
         setRoomTypes(roomTypes.map(rt => rt.id === mdEditId ? {
           ...rt,
           name: mdForm.name,
           description: mdForm.description,
+          standardRoomTypeId: mdForm.standardRoomTypeId || undefined,
           basePrice: Number(mdForm.basePrice) || 0,
-          allowedCapacity: Number(mdForm.allowedCapacity) || 1,
+          allowedCapacity: updatedCapacity,
           updatedAt: new Date().toISOString(),
         } : rt))
+        
+        // Update all rooms with this room type if capacity changed
+        if (existing && updatedCapacity !== existing.allowedCapacity) {
+          useRoomsStore.getState().rooms
+            .filter(room => room.type === existing.name)
+            .forEach(room => update(room.id, { capacity: updatedCapacity }))
+        }
       }
     }
     if (mdEntity === 'amenity') {
@@ -264,6 +326,26 @@ const RoomsPage: React.FC = () => {
     setIsMdModalOpen(false)
   }
   const deleteMdItem = (entity: typeof mdEntity, id: string) => {
+    if (entity === 'standardRoomType') {
+      // Check if in use by Room Types
+      const isUsedInRoomTypes = roomTypes.some(rt => rt.standardRoomTypeId === id)
+      // Check if in use by Rooms (via room types)
+      const srt = standardRoomTypesStore.getById(id)
+      const isUsedInRooms = srt ? useRoomsStore.getState().rooms.some(r => {
+        const rt = roomTypes.find(rt => rt.standardRoomTypeId === id)
+        return rt && r.type === rt.name
+      }) : false
+      
+      if (isUsedInRoomTypes || isUsedInRooms) {
+        alert('Cannot delete: This Standard Room Type is currently in use.')
+        return
+      }
+      
+      const result = standardRoomTypesStore.remove(id)
+      if (!result.success) {
+        alert(result.error || 'Cannot delete Standard Room Type')
+      }
+    }
     if (entity === 'roomType') setRoomTypes(roomTypes.filter(r => r.id !== id))
     if (entity === 'amenity') setAmenities(amenities.filter(a => a.id !== id))
     if (entity === 'area') setAreas(areas.filter(a => a !== id))
@@ -311,6 +393,10 @@ const RoomsPage: React.FC = () => {
   const submitCreateEdit = () => {
     if (!form.number.trim()) {
       alert('Room number is required')
+      return
+    }
+    if (form.amenities.length === 0) {
+      alert('Please select at least one required amenity')
       return
     }
     // unique room number validation
@@ -511,41 +597,198 @@ const RoomsPage: React.FC = () => {
     </div>
   )
 
-  const renderCalendar = () => (
-    <Card className="p-4">
-      <div className="flex items-center gap-2 mb-4">
-        <CalendarDays className="h-5 w-5 text-primary" />
-        <h3 className="font-semibold text-text">This Week Schedule</h3>
-      </div>
-      <div className="grid grid-cols-8 gap-2">
-        <div className="text-sm text-textSecondary">Room</div>
-        {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d => (
-          <div key={d} className="text-xs text-textSecondary text-center">{d}</div>
-        ))}
-        {rooms.map(room => (
-          <React.Fragment key={room.id}>
-            <div className="text-sm font-medium text-text">{room.number}</div>
-            {Array.from({ length: 7 }).map((_, idx) => (
-              <button
-                key={idx}
-                className="h-8 rounded-md flex items-center justify-center text-xs bg-background border border-border hover:bg-primary/10"
-                onClick={() => handleViewDetails(room)}
-                aria-label={`View ${room.number} on day ${idx + 1}`}
-              >
-                <span className="truncate">
-                  {room.status === RoomStatus.Occupied ? 'Occupied' :
-                   room.status === RoomStatus.Reserved ? 'Reserved' :
-                   room.status === RoomStatus.Dirty ? 'Dirty' :
-                   room.status === RoomStatus.CleaningInProgress ? 'Cleaning' :
-                   room.status === RoomStatus.UnderMaintenance ? 'Maint.' : 'Available'}
-                </span>
-              </button>
+  const renderCalendar = () => {
+    const getDaysForView = () => {
+      const today = new Date()
+      if (calendarView === 'week') {
+        const startOfWeek = new Date(today)
+        startOfWeek.setDate(today.getDate() - today.getDay() + 1) // Monday
+        return Array.from({ length: 7 }, (_, i) => {
+          const date = new Date(startOfWeek)
+          date.setDate(startOfWeek.getDate() + i)
+          return date
+        })
+      } else if (calendarView === 'month') {
+        const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1)
+        const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate()
+        return Array.from({ length: daysInMonth }, (_, i) => {
+          const date = new Date(startOfMonth)
+          date.setDate(startOfMonth.getDate() + i)
+          return date
+        })
+      } else { // year
+        const months = Array.from({ length: 12 }, (_, i) => {
+          const date = new Date(today.getFullYear(), i, 1)
+          return date
+        })
+        return months
+      }
+    }
+
+    const days = getDaysForView()
+    const dayLabels = calendarView === 'week' 
+      ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+      : calendarView === 'month'
+      ? days.map(d => d.getDate().toString())
+      : ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+    return (
+      <Card className="p-4">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <CalendarDays className="h-5 w-5 text-primary" />
+            <h3 className="font-semibold text-text">
+              {calendarView === 'week' ? 'Weekly' : calendarView === 'month' ? 'Monthly' : 'Yearly'} Schedule
+            </h3>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant={calendarView === 'week' ? 'primary' : 'outline'}
+              size="sm"
+              onClick={() => setCalendarView('week')}
+            >
+              Week
+            </Button>
+            <Button
+              variant={calendarView === 'month' ? 'primary' : 'outline'}
+              size="sm"
+              onClick={() => setCalendarView('month')}
+            >
+              Month
+            </Button>
+            <Button
+              variant={calendarView === 'year' ? 'primary' : 'outline'}
+              size="sm"
+              onClick={() => setCalendarView('year')}
+            >
+              Year
+            </Button>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <div className={`grid gap-2 ${calendarView === 'week' ? 'grid-cols-8' : calendarView === 'month' ? 'grid-cols-[120px_repeat(31,minmax(40px,1fr))]' : 'grid-cols-[120px_repeat(12,minmax(80px,1fr))]'}`} style={{ minWidth: calendarView === 'month' ? '1400px' : calendarView === 'year' ? '1200px' : 'auto' }}>
+            <div className="text-sm text-textSecondary font-medium sticky left-0 bg-surface z-10 p-2">Room</div>
+            {dayLabels.map((label, idx) => (
+              <div key={idx} className="text-xs text-textSecondary text-center font-medium p-2">
+                {label}
+              </div>
             ))}
-          </React.Fragment>
-        ))}
-      </div>
-    </Card>
-  )
+            {rooms.map(room => (
+              <React.Fragment key={room.id}>
+                <div className="text-sm font-medium text-text sticky left-0 bg-surface z-10 p-2 border-r border-border">
+                  {room.number}
+                </div>
+                {days.map((day, idx) => (
+                  <button
+                    key={idx}
+                    className="h-10 rounded-md flex items-center justify-center text-xs bg-background border border-border hover:bg-primary/10 transition-colors"
+                    onClick={() => handleViewDetails(room)}
+                    aria-label={`View ${room.number} on ${day.toLocaleDateString()}`}
+                  >
+                    <span className="truncate px-1">
+                      {room.status === RoomStatus.Occupied ? 'O' :
+                       room.status === RoomStatus.Reserved ? 'R' :
+                       room.status === RoomStatus.Dirty ? 'D' :
+                       room.status === RoomStatus.CleaningInProgress ? 'C' :
+                       room.status === RoomStatus.UnderMaintenance ? 'M' : 'A'}
+                    </span>
+                  </button>
+                ))}
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+        <div className="mt-4 flex gap-4 text-xs text-textSecondary">
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 bg-background border border-border rounded"></div>
+            <span>A = Available</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 bg-error/20 border border-error rounded"></div>
+            <span>O = Occupied</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 bg-primary/20 border border-primary rounded"></div>
+            <span>R = Reserved</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 bg-warning/20 border border-warning rounded"></div>
+            <span>D = Dirty, C = Cleaning, M = Maintenance</span>
+          </div>
+        </div>
+      </Card>
+    )
+  }
+
+  const renderStandardRoomTypesManager = () => {
+    const filteredStandardRoomTypes = standardRoomTypesStore.list({
+      search: standardRoomTypeSearch,
+      sortBy: standardRoomTypeSortBy,
+      sortDir: standardRoomTypeSortDir,
+    })
+
+    return (
+      <Card className="p-4">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-text">Standard Room Types</h3>
+          <Button variant="primary" icon={Plus} onClick={() => openMdCreate('standardRoomType')}>
+            Add Standard Room Type
+          </Button>
+        </div>
+        <div className="mb-4 space-y-4">
+          <Input
+            type="text"
+            placeholder="Search by name or description..."
+            value={standardRoomTypeSearch}
+            onChange={(e) => setStandardRoomTypeSearch(e.target.value)}
+            icon={Search}
+          />
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-textSecondary">Sort by:</label>
+              <select
+                value={standardRoomTypeSortBy}
+                onChange={(e) => setStandardRoomTypeSortBy(e.target.value as 'name' | 'defaultCapacity')}
+                className="px-3 py-1.5 bg-surface border border-border rounded-lg text-text text-sm"
+              >
+                <option value="name">Name</option>
+                <option value="defaultCapacity">Capacity</option>
+              </select>
+              <Button
+                variant="outline"
+                size="sm"
+                icon={standardRoomTypeSortDir === 'asc' ? SortAsc : SortDesc}
+                onClick={() => setStandardRoomTypeSortDir(standardRoomTypeSortDir === 'asc' ? 'desc' : 'asc')}
+              />
+            </div>
+          </div>
+        </div>
+        <Table<StandardRoomType>
+          data={filteredStandardRoomTypes}
+          columns={[
+            { key: 'name', header: 'Name' },
+            { key: 'description', header: 'Description' },
+            { key: 'defaultCapacity', header: 'Default Capacity' },
+            {
+              key: 'actions',
+              header: 'Actions',
+              className: 'text-right',
+              render: (srt) => (
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" size="sm" onClick={() => openMdEdit('standardRoomType', srt.id)}>
+                    Edit
+                  </Button>
+                  <Button variant="danger" size="sm" onClick={() => deleteMdItem('standardRoomType', srt.id)}>
+                    Delete
+                  </Button>
+                </div>
+              ),
+            },
+          ]}
+        />
+      </Card>
+    )
+  }
 
   const renderRoomTypesManager = () => (
     <Card className="p-4">
@@ -558,6 +801,17 @@ const RoomsPage: React.FC = () => {
         columns={[
           { key: 'name', header: 'Name' },
           { key: 'description', header: 'Description' },
+          {
+            key: 'standardRoomType',
+            header: 'Standard Room Type',
+            render: (rt) => {
+              if (rt.standardRoomTypeId) {
+                const srt = standardRoomTypesStore.getById(rt.standardRoomTypeId)
+                return srt ? srt.name : '-'
+              }
+              return '-'
+            },
+          },
           { key: 'basePrice', header: 'Base Price', render: (rt) => <span>${rt.basePrice}</span> },
           { key: 'allowedCapacity', header: 'Capacity' },
           {
@@ -704,6 +958,7 @@ const RoomsPage: React.FC = () => {
           <Button variant="outline" icon={Settings} onClick={() => setActiveSection('rooms')}>
             Rooms
           </Button>
+          <Button variant="outline" onClick={() => setActiveSection('standardRoomTypes')}>Standard Room Types</Button>
           <Button variant="outline" onClick={() => setActiveSection('roomTypes')}>Room Types</Button>
           <Button variant="outline" onClick={() => setActiveSection('stayTypes')}>Stay Types</Button>
           <Button variant="outline" onClick={() => setActiveSection('amenities')}>Amenities</Button>
@@ -746,6 +1001,7 @@ const RoomsPage: React.FC = () => {
       {activeSection === 'rooms' && activeTab === 'overview' && renderRoomsGrid()}
 
       {activeSection === 'rooms' && activeTab === 'calendar' && renderCalendar()}
+      {activeSection === 'standardRoomTypes' && renderStandardRoomTypesManager()}
       {activeSection === 'roomTypes' && renderRoomTypesManager()}
       {activeSection === 'stayTypes' && renderStayTypesManager()}
       {activeSection === 'amenities' && renderAmenitiesManager()}
@@ -931,12 +1187,31 @@ const RoomsPage: React.FC = () => {
             onChange={(e) => setForm({ ...form, imageUrl: e.target.value })}
           />
           <div className="md:col-span-2">
-            <label className="block text-sm font-medium text-text mb-2">Amenities (comma separated)</label>
-            <Input
-              type="text"
-              value={form.amenities.join(', ')}
-              onChange={(e) => setForm({ ...form, amenities: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
-            />
+            <label className="block text-sm font-medium text-text mb-2">
+              Required Amenities <span className="text-error">*</span>
+            </label>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 p-4 border border-border rounded-xl bg-surface max-h-48 overflow-y-auto">
+              {amenities.filter(a => a.active).map(amenity => (
+                <label key={amenity.id} className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={form.amenities.includes(amenity.name)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setForm({ ...form, amenities: [...form.amenities, amenity.name] })
+                      } else {
+                        setForm({ ...form, amenities: form.amenities.filter(a => a !== amenity.name) })
+                      }
+                    }}
+                    className="w-4 h-4 text-primary border-border rounded focus:ring-primary"
+                  />
+                  <span className="text-sm text-text">{amenity.name}</span>
+                </label>
+              ))}
+            </div>
+            {form.amenities.length === 0 && (
+              <p className="text-xs text-error mt-1">Please select at least one amenity</p>
+            )}
           </div>
           <div className="md:col-span-2">
             <FormField
@@ -972,7 +1247,9 @@ const RoomsPage: React.FC = () => {
         isOpen={isMdModalOpen}
         onClose={() => setIsMdModalOpen(false)}
         title={`${mdMode === 'create' ? 'Add' : 'Edit'} ${
-          mdEntity === 'roomType'
+          mdEntity === 'standardRoomType'
+            ? 'Standard Room Type'
+            : mdEntity === 'roomType'
             ? 'Room Type'
             : mdEntity === 'amenity'
               ? 'Amenity'
@@ -984,18 +1261,68 @@ const RoomsPage: React.FC = () => {
         }`}
       >
         <div className="space-y-4">
-          <FormField
-            label="Name"
-            value={mdForm.name || ''}
-            onChange={(e) => setMdForm({ ...mdForm, name: e.target.value })}
-          />
+          {mdEntity === 'standardRoomType' && (
+            <>
+              <FormField
+                label="Name"
+                value={mdForm.name || ''}
+                onChange={(e) => setMdForm({ ...mdForm, name: e.target.value })}
+                required
+              />
+              <FormField
+                label="Description"
+                value={mdForm.description || ''}
+                onChange={(e) => setMdForm({ ...mdForm, description: e.target.value })}
+                required
+              />
+              <FormField
+                label="Default Capacity"
+                type="number"
+                value={mdForm.defaultCapacity || 1}
+                onChange={(e) => setMdForm({ ...mdForm, defaultCapacity: parseInt(e.target.value) || 1 })}
+                min={1}
+                required
+              />
+            </>
+          )}
           {mdEntity === 'roomType' && (
             <>
+              <FormField
+                label="Name"
+                value={mdForm.name || ''}
+                onChange={(e) => setMdForm({ ...mdForm, name: e.target.value })}
+                required
+              />
               <FormField
                 label="Description"
                 value={mdForm.description || ''}
                 onChange={(e) => setMdForm({ ...mdForm, description: e.target.value })}
               />
+              <div>
+                <label className="block text-sm font-medium text-text mb-2">
+                  Standard Room Type <span className="text-textSecondary">(optional)</span>
+                </label>
+                <select
+                  className="w-full px-4 py-2.5 bg-surface border border-border rounded-xl text-text focus:outline-none focus:ring-2 focus:ring-primary"
+                  value={mdForm.standardRoomTypeId || ''}
+                  onChange={(e) => {
+                    const value = e.target.value
+                    const srt = value ? standardRoomTypesStore.getById(value) : null
+                    setMdForm({
+                      ...mdForm,
+                      standardRoomTypeId: value,
+                      allowedCapacity: srt ? srt.defaultCapacity : mdForm.allowedCapacity || 1,
+                    })
+                  }}
+                >
+                  <option value="">Select Standard Room Type</option>
+                  {standardRoomTypesStore.list().map(srt => (
+                    <option key={srt.id} value={srt.id}>
+                      {srt.name} (Capacity: {srt.defaultCapacity})
+                    </option>
+                  ))}
+                </select>
+              </div>
               <FormField
                 label="Base Price"
                 type="number"
@@ -1009,11 +1336,24 @@ const RoomsPage: React.FC = () => {
                 value={mdForm.allowedCapacity || 1}
                 onChange={(e) => setMdForm({ ...mdForm, allowedCapacity: parseInt(e.target.value) || 1 })}
                 min={1}
+                disabled={!!mdForm.standardRoomTypeId}
+                required
               />
+              {mdForm.standardRoomTypeId && (
+                <p className="text-xs text-textSecondary">
+                  Capacity is auto-filled from Standard Room Type and cannot be changed.
+                </p>
+              )}
             </>
           )}
           {mdEntity === 'amenity' && (
             <>
+              <FormField
+                label="Name"
+                value={mdForm.name || ''}
+                onChange={(e) => setMdForm({ ...mdForm, name: e.target.value })}
+                required
+              />
               <div>
                 <label className="block text-sm font-medium text-text mb-2">Category</label>
                 <select
@@ -1039,6 +1379,12 @@ const RoomsPage: React.FC = () => {
           )}
           {mdEntity === 'viewType' && (
             <>
+              <FormField
+                label="Name"
+                value={mdForm.name || ''}
+                onChange={(e) => setMdForm({ ...mdForm, name: e.target.value })}
+                required
+              />
               <FormField
                 label="Description"
                 value={mdForm.description || ''}
@@ -1082,6 +1428,12 @@ const RoomsPage: React.FC = () => {
           )}
           {mdEntity === 'stayType' && (
             <>
+              <FormField
+                label="Name"
+                value={mdForm.name || ''}
+                onChange={(e) => setMdForm({ ...mdForm, name: e.target.value })}
+                required
+              />
               <FormField
                 label="Description"
                 value={mdForm.description || ''}
